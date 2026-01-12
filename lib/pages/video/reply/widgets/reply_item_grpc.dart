@@ -1,6 +1,7 @@
 import 'dart:math';
 
 import 'package:PiliPlus/common/constants.dart';
+import 'package:PiliPlus/common/widgets/ai_summary_progress.dart';
 import 'package:PiliPlus/common/widgets/badge.dart';
 import 'package:PiliPlus/common/widgets/dialog/report.dart';
 import 'package:PiliPlus/common/widgets/flutter/text/text.dart' as custom_text;
@@ -202,120 +203,162 @@ class ReplyItemGrpc extends StatelessWidget {
       left: replyLevel == 0 ? 6 : 45,
       right: 6,
     );
+    
+    // Get AI summary state for this reply (only for level 1 replies)
+    final stateKey = '${replyItem.id}';
+    final summaryState = replyLevel == 1 ? ReplyItemGrpc._getOrCreateState(stateKey) : null;
+    
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: () {
-            feedBack();
-            Get.toNamed('/member?mid=${replyItem.mid}');
-          },
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.center,
-            spacing: 12,
-            children: [
-              _buildAvatar(),
-              Column(
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Avatar column with optional progress indicator
+            Column(
+              children: [
+                GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () {
+                    feedBack();
+                    Get.toNamed('/member?mid=${replyItem.mid}');
+                  },
+                  child: _buildAvatar(),
+                ),
+                // AI summary progress indicator (only for level 1 replies)
+                if (summaryState != null && (summaryState.isProcessing || summaryState.isComplete))
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: AnimatedBuilder(
+                      animation: summaryState,
+                      builder: (context, _) {
+                        return AiSummaryProgressIndicator(
+                          progress: summaryState.progress,
+                          isComplete: summaryState.isComplete,
+                          onTap: summaryState.isComplete
+                              ? () => _showSummaryResult(context, summaryState.summary ?? '')
+                              : null,
+                          onCancel: summaryState.isProcessing
+                              ? () => _onCancelSummary(context, summaryState, stateKey)
+                              : null,
+                        );
+                      },
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(width: 12),
+            // Content column
+            Expanded(
+              child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    spacing: 6,
-                    children: [
-                      Text(
-                        replyItem.member.name,
-                        style: TextStyle(
-                          color:
-                              (replyItem.member.vipStatus > 0 &&
-                                  replyItem.member.vipType == 2)
-                              ? theme.colorScheme.vipColor
-                              : theme.colorScheme.outline,
-                          fontSize: 13,
-                        ),
-                      ),
-                      Image.asset(
-                        Utils.levelName(
-                          replyItem.member.level,
-                          isSeniorMember: replyItem.member.isSeniorMember == 1,
-                        ),
-                        height: 11,
-                        cacheHeight: 11.cacheSize(context),
-                      ),
-                      if (replyItem.mid == upMid)
-                        const PBadge(
-                          text: 'UP',
-                          size: PBadgeSize.small,
-                          isStack: false,
-                          fontSize: 9,
-                        ),
-                    ],
-                  ),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: <Widget>[
-                      Text(
-                        replyLevel == 0
-                            ? DateFormatUtils.format(
-                                replyItem.ctime.toInt(),
-                                format: DateFormatUtils.longFormatDs,
-                              )
-                            : DateFormatUtils.dateFormat(
-                                replyItem.ctime.toInt(),
+                  GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () {
+                      feedBack();
+                      Get.toNamed('/member?mid=${replyItem.mid}');
+                    },
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          spacing: 6,
+                          children: [
+                            Text(
+                              replyItem.member.name,
+                              style: TextStyle(
+                                color:
+                                    (replyItem.member.vipStatus > 0 &&
+                                        replyItem.member.vipType == 2)
+                                    ? theme.colorScheme.vipColor
+                                    : theme.colorScheme.outline,
+                                fontSize: 13,
                               ),
-                        style: TextStyle(
-                          fontSize: theme.textTheme.labelSmall!.fontSize,
-                          color: theme.colorScheme.outline,
+                            ),
+                            Image.asset(
+                              Utils.levelName(
+                                replyItem.member.level,
+                                isSeniorMember: replyItem.member.isSeniorMember == 1,
+                              ),
+                              height: 11,
+                              cacheHeight: 11.cacheSize(context),
+                            ),
+                            if (replyItem.mid == upMid)
+                              const PBadge(
+                                text: 'UP',
+                                size: PBadgeSize.small,
+                                isStack: false,
+                                fontSize: 9,
+                              ),
+                          ],
                         ),
-                      ),
-                      if (replyItem.replyControl.hasLocation())
-                        Text(
-                          ' • ${replyItem.replyControl.location}',
-                          style: TextStyle(
-                            fontSize: theme.textTheme.labelSmall!.fontSize,
-                            color: theme.colorScheme.outline,
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: <Widget>[
+                            Text(
+                              replyLevel == 0
+                                  ? DateFormatUtils.format(
+                                      replyItem.ctime.toInt(),
+                                      format: DateFormatUtils.longFormatDs,
+                                    )
+                                  : DateFormatUtils.dateFormat(
+                                      replyItem.ctime.toInt(),
+                                    ),
+                              style: TextStyle(
+                                fontSize: theme.textTheme.labelSmall!.fontSize,
+                                color: theme.colorScheme.outline,
+                              ),
+                            ),
+                            if (replyItem.replyControl.hasLocation())
+                              Text(
+                                ' • ${replyItem.replyControl.location}',
+                                style: TextStyle(
+                                  fontSize: theme.textTheme.labelSmall!.fontSize,
+                                  color: theme.colorScheme.outline,
+                                ),
+                              ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  custom_text.Text.rich(
+                    primary: theme.colorScheme.primary,
+                    style: TextStyle(
+                      height: 1.75,
+                      fontSize: theme.textTheme.bodyMedium!.fontSize,
+                    ),
+                    maxLines: replyLevel == 1 ? replyLengthLimit : null,
+                    TextSpan(
+                      children: [
+                        if (replyItem.replyControl.isUpTop) ...[
+                          const WidgetSpan(
+                            alignment: PlaceholderAlignment.middle,
+                            child: PBadge(
+                              text: 'TOP',
+                              size: PBadgeSize.small,
+                              isStack: false,
+                              type: PBadgeType.line_primary,
+                              fontSize: 9,
+                              textScaleFactor: 1,
+                            ),
                           ),
-                        ),
-                    ],
+                          const TextSpan(text: ' '),
+                        ],
+                        buildContent(context, theme, replyItem),
+                      ],
+                    ),
                   ),
                 ],
               ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 10),
-        Padding(
-          padding: padding,
-          child: custom_text.Text.rich(
-            primary: theme.colorScheme.primary,
-            style: TextStyle(
-              height: 1.75,
-              fontSize: theme.textTheme.bodyMedium!.fontSize,
             ),
-            maxLines: replyLevel == 1 ? replyLengthLimit : null,
-            TextSpan(
-              children: [
-                if (replyItem.replyControl.isUpTop) ...[
-                  const WidgetSpan(
-                    alignment: PlaceholderAlignment.middle,
-                    child: PBadge(
-                      text: 'TOP',
-                      size: PBadgeSize.small,
-                      isStack: false,
-                      type: PBadgeType.line_primary,
-                      fontSize: 9,
-                      textScaleFactor: 1,
-                    ),
-                  ),
-                  const TextSpan(text: ' '),
-                ],
-                buildContent(context, theme, replyItem),
-              ],
-            ),
-          ),
+          ],
         ),
         if (replyItem.content.pictures.isNotEmpty) ...[
           Padding(
@@ -1091,6 +1134,41 @@ class ReplyItemGrpc extends StatelessWidget {
     // Start summarizing
     state.startProcessing();
     _startAiSummary(context, item, state);
+  }
+
+  void _onCancelSummary(
+    BuildContext context,
+    AiSummaryState state,
+    String stateKey,
+  ) {
+    showDialog(
+      context: context,
+      builder: (context) {
+        final theme = Theme.of(context);
+        return AlertDialog(
+          title: const Text('取消总结'),
+          content: const Text('正在总结中，是否结束？'),
+          actions: [
+            TextButton(
+              onPressed: () => Get.back(),
+              child: Text(
+                '继续',
+                style: TextStyle(color: theme.colorScheme.outline),
+              ),
+            ),
+            TextButton(
+              onPressed: () {
+                Get.back();
+                state.reset();
+                ReplyItemGrpc._removeSummaryState(stateKey);
+                SmartDialog.showToast('已取消');
+              },
+              child: const Text('结束'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   Future<void> _startAiSummary(
