@@ -17,6 +17,7 @@ import 'package:PiliPlus/pages/dynamics/widgets/vote.dart';
 import 'package:PiliPlus/pages/save_panel/view.dart';
 import 'package:PiliPlus/pages/video/controller.dart';
 import 'package:PiliPlus/pages/video/reply/widgets/zan_grpc.dart';
+import 'package:PiliPlus/services/ai_summary_service.dart';
 import 'package:PiliPlus/utils/accounts.dart';
 import 'package:PiliPlus/utils/date_utils.dart';
 import 'package:PiliPlus/utils/duration_utils.dart';
@@ -27,12 +28,14 @@ import 'package:PiliPlus/utils/feed_back.dart';
 import 'package:PiliPlus/utils/image_utils.dart';
 import 'package:PiliPlus/utils/page_utils.dart';
 import 'package:PiliPlus/utils/platform_utils.dart';
+import 'package:PiliPlus/utils/storage.dart';
+import 'package:PiliPlus/utils/storage_key.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:PiliPlus/utils/url_utils.dart';
 import 'package:PiliPlus/utils/utils.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:fixnum/fixnum.dart';
-import 'package:flutter/foundation.dart' show kDebugMode;
+import 'package:flutter/foundation.dart' show kDebugMode, ChangeNotifier;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
@@ -73,6 +76,20 @@ class ReplyItemGrpc extends StatelessWidget {
   static final _timeRegExp = RegExp(r'^(?:\d+[:：])?\d+[:：]\d+$');
   static bool enableWordRe = Pref.enableWordRe;
   static int? replyLengthLimit = Pref.replyLengthLimit;
+  
+  // Global state for AI summaries
+  static final Map<String, AiSummaryState> _summaryStates = {};
+
+  static AiSummaryState _getOrCreateState(String key) {
+    return _summaryStates.putIfAbsent(
+      key,
+      () => AiSummaryState(),
+    );
+  }
+
+  static void _removeSummaryState(String key) {
+    _summaryStates.remove(key);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -985,7 +1002,7 @@ class ReplyItemGrpc extends StatelessWidget {
                 builder: (context) {
                   return Dialog(
                     child: Padding(
-                      padding: const .symmetric(horizontal: 20, vertical: 16),
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
                       child: SelectableText(
                         message,
                         style: const TextStyle(fontSize: 15, height: 1.7),
@@ -999,6 +1016,16 @@ class ReplyItemGrpc extends StatelessWidget {
             leading: const Icon(Icons.copy_outlined, size: 19),
             title: Text('自由复制', style: style),
           ),
+          if (replyLevel == 1 && !isSubReply)
+            ListTile(
+              onTap: () {
+                Get.back();
+                _onAiSummaryTap(context, item);
+              },
+              minLeadingWidth: 0,
+              leading: const Icon(Icons.psychology_outlined, size: 19),
+              title: Text('AI总结', style: style),
+            ),
           ListTile(
             onTap: () {
               Get.back();
@@ -1028,5 +1055,148 @@ class ReplyItemGrpc extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  void _onAiSummaryTap(BuildContext context, ReplyInfo item) {
+    // Check if AI is configured
+    final baseUrl = GStorage.setting.get(
+      SettingBoxKey.aiSummaryBaseUrl,
+      defaultValue: '',
+    );
+    final apiKey = GStorage.setting.get(
+      SettingBoxKey.aiSummaryApiKey,
+      defaultValue: '',
+    );
+
+    if (baseUrl.isEmpty || apiKey.isEmpty) {
+      SmartDialog.showToast('请先在设置中配置AI API');
+      return;
+    }
+
+    // Get or create state for this reply
+    final stateKey = '${item.id}';
+    final state = ReplyItemGrpc._getOrCreateState(stateKey);
+    
+    // If already summarizing or complete, handle accordingly
+    if (state.isComplete) {
+      _showSummaryResult(context, state.summary ?? '');
+      return;
+    }
+
+    if (state.isProcessing) {
+      SmartDialog.showToast('正在总结中...');
+      return;
+    }
+
+    // Start summarizing
+    state.startProcessing();
+    _startAiSummary(context, item, state);
+  }
+
+  Future<void> _startAiSummary(
+    BuildContext context,
+    ReplyInfo item,
+    AiSummaryState state,
+  ) async {
+    try {
+      final (success, result) = await AiSummaryService.summarizeReply(
+        type: item.type.toInt(),
+        oid: item.oid,
+        rootRpid: item.id,
+        onProgress: (progress) {
+          state.updateProgress(progress);
+        },
+      );
+
+      if (success) {
+        state.complete(result);
+        SmartDialog.showToast('总结完成');
+        if (context.mounted) {
+          _showSummaryResult(context, result);
+        }
+      } else {
+        state.reset();
+        SmartDialog.showToast('总结失败: $result');
+      }
+    } catch (e) {
+      state.reset();
+      SmartDialog.showToast('总结失败: $e');
+    }
+  }
+
+  void _showSummaryResult(BuildContext context, String summary) {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Row(
+            children: [
+              const Icon(Icons.psychology_outlined),
+              const SizedBox(width: 8),
+              const Text('AI总结'),
+              const Spacer(),
+              IconButton(
+                icon: const Icon(Icons.copy),
+                onPressed: () => Utils.copyText(summary),
+                tooltip: '复制',
+              ),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: SelectableText(
+              summary,
+              style: const TextStyle(fontSize: 15, height: 1.7),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Get.back(),
+              child: const Text('关闭'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class AiSummaryState extends ChangeNotifier {
+  double _progress = 0.0;
+  bool _isProcessing = false;
+  bool _isComplete = false;
+  String? _summary;
+
+  double get progress => _progress;
+  bool get isProcessing => _isProcessing;
+  bool get isComplete => _isComplete;
+  String? get summary => _summary;
+
+  void startProcessing() {
+    _isProcessing = true;
+    _progress = 0.0;
+    _isComplete = false;
+    _summary = null;
+    notifyListeners();
+  }
+
+  void updateProgress(double progress) {
+    _progress = progress;
+    notifyListeners();
+  }
+
+  void complete(String summary) {
+    _isProcessing = false;
+    _isComplete = true;
+    _summary = summary;
+    _progress = 1.0;
+    notifyListeners();
+  }
+
+  void reset() {
+    _isProcessing = false;
+    _isComplete = false;
+    _progress = 0.0;
+    _summary = null;
+    notifyListeners();
   }
 }

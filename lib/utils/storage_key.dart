@@ -204,6 +204,9 @@ abstract final class SettingBoxKey {
   static const String systemProxyHost = 'systemProxyHost',
       systemProxyPort = 'systemProxyPort';
 
+  static const String aiSummaryBaseUrl = 'aiSummaryBaseUrl',
+      aiSummaryApiKey = 'aiSummaryApiKey';
+
   static const String themeMode = 'themeMode',
       defaultTextScale = 'textScale',
       dynamicColor = 'dynamicColor',
