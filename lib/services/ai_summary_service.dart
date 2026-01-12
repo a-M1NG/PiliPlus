@@ -86,8 +86,8 @@ class AiSummaryService {
   }
 
   /// Parse extra parameters from JSON string
-  /// Note: Critical parameters like 'model' and 'messages' should not be included
-  /// as they will be overridden by the service configuration
+  /// Note: Critical parameters like 'model', 'messages', 'stream', and 'max_tokens'
+  /// will be filtered out to prevent unexpected behavior
   static Map<String, dynamic> parseExtraParams() {
     try {
       final params = extraParams.trim();
@@ -103,6 +103,7 @@ class AiSummaryService {
       decoded.remove('model');
       decoded.remove('messages');
       decoded.remove('stream');
+      decoded.remove('max_tokens');
       
       return decoded;
     } catch (e) {
@@ -130,12 +131,14 @@ class AiSummaryService {
         'messages': [
           {'role': 'user', 'content': 'Hello'},
         ],
-        'max_tokens': 10,
       };
 
-      // Add extra parameters
+      // Add extra parameters first
       final extra = parseExtraParams();
       requestData.addAll(extra);
+      
+      // Set max_tokens last to ensure it cannot be overridden
+      requestData['max_tokens'] = 10;
 
       final response = await dio.post(
         '$baseUrl/chat/completions',
