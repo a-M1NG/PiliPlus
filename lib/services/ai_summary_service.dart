@@ -397,11 +397,11 @@ class AiSummaryService {
     // Calculate how many replies we can include
     for (int i = 0; i < replies.length; i++) {
       final reply = replies[i];
-      final user = reply['user'].toString();
-      final content = reply['content'].toString();
+      final user = _escapeCsvField(reply['user'].toString());
+      final content = _escapeCsvField(reply['content'].toString());
       final likes = reply['likes'].toString();
       
-      // Estimate CSV line: "user,content,likes\n"
+      // Estimate CSV line with proper escaping: "user,content,likes\n"
       final csvLine = '$user,$content,$likes\n';
       final lineTokens = estimateTokens(csvLine);
       
