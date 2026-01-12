@@ -39,6 +39,7 @@ import 'package:PiliPlus/utils/storage_key.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:PiliPlus/utils/update.dart';
 import 'package:PiliPlus/utils/utils.dart';
+import 'package:dio/dio.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
@@ -867,6 +868,17 @@ List<SettingsModel> get extraSettings => [
     setKey: SettingBoxKey.enableAi,
     defaultVal: false,
   ),
+  NormalModel(
+    title: 'AI总结API配置',
+    subtitle: '配置OpenAI风格API用于评论总结',
+    leading: const Icon(Icons.api_outlined),
+    onTap: (context, setState) {
+      showDialog(
+        context: context,
+        builder: (context) => _AiApiConfigDialog(onSaved: setState),
+      );
+    },
+  ),
   const SwitchModel(
     title: '消息页禁用"收到的赞"功能',
     subtitle: '禁止打开入口，降低网络社交依赖',
@@ -1264,5 +1276,179 @@ Future<void> audioNormalization(
       }
       setState();
     }
+  }
+}
+
+class _AiApiConfigDialog extends StatefulWidget {
+  final VoidCallback onSaved;
+
+  const _AiApiConfigDialog({required this.onSaved});
+
+  @override
+  State<_AiApiConfigDialog> createState() => _AiApiConfigDialogState();
+}
+
+class _AiApiConfigDialogState extends State<_AiApiConfigDialog> {
+  late TextEditingController _baseUrlController;
+  late TextEditingController _apiKeyController;
+  bool _isTesting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _baseUrlController = TextEditingController(
+      text: GStorage.setting.get(
+        SettingBoxKey.aiSummaryBaseUrl,
+        defaultValue: 'https://api.deepseek.com',
+      ),
+    );
+    _apiKeyController = TextEditingController(
+      text: GStorage.setting.get(
+        SettingBoxKey.aiSummaryApiKey,
+        defaultValue: '',
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _baseUrlController.dispose();
+    _apiKeyController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _testConnection() async {
+    setState(() => _isTesting = true);
+
+    final baseUrl = _baseUrlController.text.trim();
+    final apiKey = _apiKeyController.text.trim();
+
+    if (baseUrl.isEmpty || apiKey.isEmpty) {
+      SmartDialog.showToast('请先填写完整的配置信息');
+      setState(() => _isTesting = false);
+      return;
+    }
+
+    // Save temporarily for testing
+    await GStorage.setting.put(SettingBoxKey.aiSummaryBaseUrl, baseUrl);
+    await GStorage.setting.put(SettingBoxKey.aiSummaryApiKey, apiKey);
+
+    try {
+      final dio = Dio(BaseOptions(
+        connectTimeout: const Duration(seconds: 10),
+        receiveTimeout: const Duration(seconds: 10),
+      ));
+
+      final response = await dio.post(
+        '$baseUrl/chat/completions',
+        options: Options(headers: {
+          'Authorization': 'Bearer $apiKey',
+          'Content-Type': 'application/json',
+        }),
+        data: {
+          'model': 'gpt-3.5-turbo',
+          'messages': [
+            {'role': 'user', 'content': 'Hello'}
+          ],
+          'max_tokens': 10,
+        },
+      );
+
+      if (mounted) {
+        if (response.statusCode == 200) {
+          SmartDialog.showToast('连接成功');
+        } else {
+          SmartDialog.showToast('连接失败: ${response.statusCode}');
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        SmartDialog.showToast('连接失败: $e');
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isTesting = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return AlertDialog(
+      title: const Text('AI总结API配置'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              '配置OpenAI风格的API用于评论总结',
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _baseUrlController,
+              decoration: const InputDecoration(
+                labelText: 'API Base URL',
+                hintText: 'https://api.deepseek.com',
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _apiKeyController,
+              decoration: const InputDecoration(
+                labelText: 'API Key',
+                hintText: 'sk-...',
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+              obscureText: true,
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _isTesting ? null : _testConnection,
+                icon: _isTesting
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.wifi_tethering),
+                label: Text(_isTesting ? '测试中...' : '测试连接'),
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Get.back(),
+          child: Text(
+            '取消',
+            style: TextStyle(color: theme.colorScheme.outline),
+          ),
+        ),
+        TextButton(
+          onPressed: () async {
+            final baseUrl = _baseUrlController.text.trim();
+            final apiKey = _apiKeyController.text.trim();
+
+            await GStorage.setting.put(SettingBoxKey.aiSummaryBaseUrl, baseUrl);
+            await GStorage.setting.put(SettingBoxKey.aiSummaryApiKey, apiKey);
+
+            widget.onSaved();
+            Get.back();
+            SmartDialog.showToast('保存成功');
+          },
+          child: const Text('保存'),
+        ),
+      ],
+    );
   }
 }
