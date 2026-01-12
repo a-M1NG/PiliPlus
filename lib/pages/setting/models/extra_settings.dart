@@ -26,6 +26,7 @@ import 'package:PiliPlus/pages/setting/widgets/select_dialog.dart';
 import 'package:PiliPlus/pages/setting/widgets/slide_dialog.dart';
 import 'package:PiliPlus/pages/video/reply/widgets/reply_item_grpc.dart';
 import 'package:PiliPlus/plugin/pl_player/controller.dart';
+import 'package:PiliPlus/services/ai_summary_service.dart';
 import 'package:PiliPlus/services/download/download_service.dart';
 import 'package:PiliPlus/utils/accounts.dart';
 import 'package:PiliPlus/utils/cache_manager.dart';
@@ -1292,6 +1293,9 @@ class _AiApiConfigDialogState extends State<_AiApiConfigDialog> {
   late TextEditingController _baseUrlController;
   late TextEditingController _promptController;
   late TextEditingController _apiKeyController;
+  late TextEditingController _modelController;
+  late TextEditingController _maxTokensController;
+  late TextEditingController _extraParamsController;
   bool _isTesting = false;
 
   @override
@@ -1306,6 +1310,24 @@ class _AiApiConfigDialogState extends State<_AiApiConfigDialog> {
     _apiKeyController = TextEditingController(
       text: GStorage.setting.get(
         SettingBoxKey.aiSummaryApiKey,
+        defaultValue: '',
+      ),
+    );
+    _modelController = TextEditingController(
+      text: GStorage.setting.get(
+        SettingBoxKey.aiSummaryModel,
+        defaultValue: 'deepseek-chat',
+      ),
+    );
+    _maxTokensController = TextEditingController(
+      text: GStorage.setting.get(
+        SettingBoxKey.aiSummaryMaxTokens,
+        defaultValue: 4000,
+      ).toString(),
+    );
+    _extraParamsController = TextEditingController(
+      text: GStorage.setting.get(
+        SettingBoxKey.aiSummaryExtraParams,
         defaultValue: '',
       ),
     );
@@ -1334,6 +1356,9 @@ class _AiApiConfigDialogState extends State<_AiApiConfigDialog> {
   void dispose() {
     _baseUrlController.dispose();
     _apiKeyController.dispose();
+    _modelController.dispose();
+    _maxTokensController.dispose();
+    _extraParamsController.dispose();
     _promptController.dispose();
     super.dispose();
   }
@@ -1343,6 +1368,9 @@ class _AiApiConfigDialogState extends State<_AiApiConfigDialog> {
 
     final baseUrl = _baseUrlController.text.trim();
     final apiKey = _apiKeyController.text.trim();
+    final model = _modelController.text.trim();
+    final maxTokens = int.tryParse(_maxTokensController.text.trim()) ?? 4000;
+    final extraParams = _extraParamsController.text.trim();
 
     if (baseUrl.isEmpty || apiKey.isEmpty) {
       SmartDialog.showToast('请先填写完整的配置信息');
@@ -1353,42 +1381,18 @@ class _AiApiConfigDialogState extends State<_AiApiConfigDialog> {
     // Save temporarily for testing
     await GStorage.setting.put(SettingBoxKey.aiSummaryBaseUrl, baseUrl);
     await GStorage.setting.put(SettingBoxKey.aiSummaryApiKey, apiKey);
+    await GStorage.setting.put(SettingBoxKey.aiSummaryModel, model);
+    await GStorage.setting.put(SettingBoxKey.aiSummaryMaxTokens, maxTokens);
+    await GStorage.setting.put(SettingBoxKey.aiSummaryExtraParams, extraParams);
     await GStorage.setting.put(
       SettingBoxKey.aiSummaryPrompt,
       _promptController.text.trim(),
     );
 
     try {
-      final dio = Dio(
-        BaseOptions(
-          connectTimeout: const Duration(seconds: 10),
-          receiveTimeout: const Duration(seconds: 10),
-        ),
-      );
-
-      final response = await dio.post(
-        '$baseUrl/chat/completions',
-        options: Options(
-          headers: {
-            'Authorization': 'Bearer $apiKey',
-            'Content-Type': 'application/json',
-          },
-        ),
-        data: {
-          'model': 'deepseek-chat',
-          'messages': [
-            {'role': 'user', 'content': 'Hello'},
-          ],
-          'max_tokens': 10,
-        },
-      );
-
+      final (success, message) = await AiSummaryService.testConnection();
       if (mounted) {
-        if (response.statusCode == 200) {
-          SmartDialog.showToast('连接成功');
-        } else {
-          SmartDialog.showToast('连接失败: ${response.statusCode}');
-        }
+        SmartDialog.showToast(message);
       }
     } catch (e) {
       if (mounted) {
@@ -1413,7 +1417,7 @@ class _AiApiConfigDialogState extends State<_AiApiConfigDialog> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              '配置DeepSeek的API用于评论总结',
+              '配置OpenAI风格API用于评论总结',
               style: TextStyle(fontSize: 12, color: Colors.grey),
             ),
             const SizedBox(height: 16),
@@ -1439,6 +1443,39 @@ class _AiApiConfigDialogState extends State<_AiApiConfigDialog> {
             ),
             const SizedBox(height: 12),
             TextField(
+              controller: _modelController,
+              decoration: const InputDecoration(
+                labelText: '模型名称',
+                hintText: 'deepseek-chat',
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _maxTokensController,
+              decoration: const InputDecoration(
+                labelText: '最大Token长度',
+                hintText: '4000',
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+              keyboardType: TextInputType.number,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _extraParamsController,
+              decoration: const InputDecoration(
+                labelText: '额外参数',
+                hintText: '"temperature": 1, "top_p": 1, "frequency_penalty": 0',
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+              maxLines: 3,
+            ),
+            const SizedBox(height: 12),
+            TextField(
               controller: _promptController,
               decoration: const InputDecoration(
                 labelText: 'Prompt',
@@ -1446,7 +1483,7 @@ class _AiApiConfigDialogState extends State<_AiApiConfigDialog> {
                 border: OutlineInputBorder(),
                 isDense: true,
               ),
-              obscureText: true,
+              maxLines: 5,
             ),
             const SizedBox(height: 16),
             SizedBox(
@@ -1478,9 +1515,15 @@ class _AiApiConfigDialogState extends State<_AiApiConfigDialog> {
           onPressed: () async {
             final baseUrl = _baseUrlController.text.trim();
             final apiKey = _apiKeyController.text.trim();
+            final model = _modelController.text.trim();
+            final maxTokens = int.tryParse(_maxTokensController.text.trim()) ?? 4000;
+            final extraParams = _extraParamsController.text.trim();
 
             await GStorage.setting.put(SettingBoxKey.aiSummaryBaseUrl, baseUrl);
             await GStorage.setting.put(SettingBoxKey.aiSummaryApiKey, apiKey);
+            await GStorage.setting.put(SettingBoxKey.aiSummaryModel, model);
+            await GStorage.setting.put(SettingBoxKey.aiSummaryMaxTokens, maxTokens);
+            await GStorage.setting.put(SettingBoxKey.aiSummaryExtraParams, extraParams);
             await GStorage.setting.put(
               SettingBoxKey.aiSummaryPrompt,
               _promptController.text.trim(),

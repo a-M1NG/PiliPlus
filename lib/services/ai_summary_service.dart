@@ -10,6 +10,9 @@ class AiSummaryService {
   static String? _baseUrl;
   static String? _apiKey;
   static String? _prompt;
+  static String? _model;
+  static int? _maxTokens;
+  static String? _extraParams;
 
   static String get baseUrl =>
       _baseUrl ??
@@ -22,6 +25,20 @@ class AiSummaryService {
   static String get prompt =>
       _prompt ??
       GStorage.setting.get(SettingBoxKey.aiSummaryPrompt, defaultValue: '');
+
+  static String get model =>
+      _model ??
+      GStorage.setting.get(SettingBoxKey.aiSummaryModel,
+          defaultValue: 'deepseek-chat');
+
+  static int get maxTokens =>
+      _maxTokens ??
+      GStorage.setting.get(SettingBoxKey.aiSummaryMaxTokens,
+          defaultValue: 4000);
+
+  static String get extraParams =>
+      _extraParams ??
+      GStorage.setting.get(SettingBoxKey.aiSummaryExtraParams, defaultValue: '');
 
   static set baseUrl(String value) {
     _baseUrl = value;
@@ -38,8 +55,67 @@ class AiSummaryService {
     GStorage.setting.put(SettingBoxKey.aiSummaryPrompt, value);
   }
 
+  static set model(String value) {
+    _model = value;
+    GStorage.setting.put(SettingBoxKey.aiSummaryModel, value);
+  }
+
+  static set maxTokens(int value) {
+    _maxTokens = value;
+    GStorage.setting.put(SettingBoxKey.aiSummaryMaxTokens, value);
+  }
+
+  static set extraParams(String value) {
+    _extraParams = value;
+    GStorage.setting.put(SettingBoxKey.aiSummaryExtraParams, value);
+  }
+
   static bool get isConfigured =>
       baseUrl.isNotEmpty && apiKey.isNotEmpty && apiKey.startsWith('sk-');
+
+  /// Approximate token count (1 token ≈ 4 characters for English, ≈ 2 for Chinese)
+  static int estimateTokens(String text) {
+    // Simple estimation: average between English (4 chars/token) and Chinese (2 chars/token)
+    // Using 3 characters per token as a reasonable middle ground
+    return (text.length / 3).ceil();
+  }
+
+  /// Parse extra parameters from JSON string
+  static Map<String, dynamic> parseExtraParams() {
+    try {
+      final params = extraParams.trim();
+      if (params.isEmpty) return {};
+      
+      // Add braces if not present to make it valid JSON
+      final jsonStr = params.startsWith('{') ? params : '{$params}';
+      final decoded = jsonStr.replaceAll('\n', '').replaceAll('\r', '');
+      
+      // Parse key-value pairs manually for flexibility
+      final Map<String, dynamic> result = {};
+      final regex = RegExp(r'"([^"]+)"\s*:\s*([^,}]+)');
+      final matches = regex.allMatches(decoded);
+      
+      for (final match in matches) {
+        final key = match.group(1)!;
+        final value = match.group(2)!.trim();
+        
+        // Try to parse as number first
+        if (value == 'true') {
+          result[key] = true;
+        } else if (value == 'false') {
+          result[key] = false;
+        } else if (double.tryParse(value) != null) {
+          result[key] = double.parse(value);
+        } else {
+          result[key] = value.replaceAll('"', '');
+        }
+      }
+      
+      return result;
+    } catch (e) {
+      return {};
+    }
+  }
 
   /// Test API connection and configuration
   static Future<(bool, String)> testConnection() async {
@@ -55,6 +131,18 @@ class AiSummaryService {
         ),
       );
 
+      final requestData = {
+        'model': model,
+        'messages': [
+          {'role': 'user', 'content': 'Hello'},
+        ],
+        'max_tokens': 10,
+      };
+
+      // Add extra parameters
+      final extra = parseExtraParams();
+      requestData.addAll(extra);
+
       final response = await dio.post(
         '$baseUrl/chat/completions',
         options: Options(
@@ -63,13 +151,7 @@ class AiSummaryService {
             'Content-Type': 'application/json',
           },
         ),
-        data: {
-          'model': 'gpt-3.5-turbo',
-          'messages': [
-            {'role': 'user', 'content': 'Hello'},
-          ],
-          'max_tokens': 10,
-        },
+        data: requestData,
       );
 
       if (response.statusCode == 200) {
@@ -210,11 +292,23 @@ class AiSummaryService {
           receiveTimeout: const Duration(seconds: 60),
         ),
       );
-      prompt +=
-          '''
+      
+      final fullPrompt = '''$prompt
       数据内容：
       $csvData
       ''';
+
+      final requestData = {
+        'model': model,
+        'messages': [
+          {'role': 'user', 'content': fullPrompt},
+        ],
+        'stream': false,
+      };
+
+      // Add extra parameters
+      final extra = parseExtraParams();
+      requestData.addAll(extra);
 
       final response = await dio.post(
         '$baseUrl/chat/completions',
@@ -224,13 +318,7 @@ class AiSummaryService {
             'Content-Type': 'application/json',
           },
         ),
-        data: {
-          'model': 'deepseek-chat',
-          'messages': [
-            {'role': 'user', 'content': prompt},
-          ],
-          'stream': false,
-        },
+        data: requestData,
       );
 
       onProgress(1.0); // Complete
@@ -266,15 +354,68 @@ class AiSummaryService {
         return (false, '没有获取到回复数据');
       }
 
-      // Step 2: Convert to CSV
-      final csvData = repliesToCsv(replies);
+      // Step 2: Truncate replies to fit within token limit
+      final truncatedReplies = _truncateRepliesToTokenLimit(replies);
 
-      // Step 3: Send to AI (90-100%)
+      // Step 3: Convert to CSV
+      final csvData = repliesToCsv(truncatedReplies);
+
+      // Step 4: Send to AI (90-100%)
       final (success, result) = await summarizeReplies(csvData, onProgress);
 
       return (success, result);
     } catch (e) {
       return (false, '总结失败: $e');
     }
+  }
+
+  /// Truncate replies to fit within token limit
+  /// Removes replies from the end to stay within maxTokens
+  static List<Map<String, dynamic>> _truncateRepliesToTokenLimit(
+      List<Map<String, dynamic>> replies) {
+    if (replies.isEmpty) return replies;
+
+    // Always keep the first reply (root comment)
+    if (replies.length == 1) return replies;
+
+    // Calculate base prompt tokens (without CSV data)
+    final basePromptTokens = estimateTokens(prompt);
+    final csvHeaderTokens = estimateTokens('user,content,likes\n');
+    
+    // Reserve some tokens for the response
+    const responseReserve = 500;
+    final availableTokens = maxTokens - basePromptTokens - csvHeaderTokens - responseReserve;
+
+    if (availableTokens <= 0) {
+      // If no space, return only the root comment
+      return [replies.first];
+    }
+
+    int currentTokens = 0;
+    int lastValidIndex = 0;
+
+    // Calculate how many replies we can include
+    for (int i = 0; i < replies.length; i++) {
+      final reply = replies[i];
+      final user = reply['user'].toString();
+      final content = reply['content'].toString();
+      final likes = reply['likes'].toString();
+      
+      // Estimate CSV line: "user,content,likes\n"
+      final csvLine = '$user,$content,$likes\n';
+      final lineTokens = estimateTokens(csvLine);
+      
+      if (currentTokens + lineTokens <= availableTokens) {
+        currentTokens += lineTokens;
+        lastValidIndex = i;
+      } else {
+        // Can't fit this reply, stop here
+        break;
+      }
+    }
+
+    // Return replies up to and including lastValidIndex
+    // This ensures we don't send incomplete replies
+    return replies.sublist(0, lastValidIndex + 1);
   }
 }

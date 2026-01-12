@@ -206,7 +206,10 @@ abstract final class SettingBoxKey {
 
   static const String aiSummaryBaseUrl = 'aiSummaryBaseUrl',
       aiSummaryApiKey = 'aiSummaryApiKey',
-      aiSummaryPrompt = 'aiSummaryPrompt';
+      aiSummaryPrompt = 'aiSummaryPrompt',
+      aiSummaryModel = 'aiSummaryModel',
+      aiSummaryMaxTokens = 'aiSummaryMaxTokens',
+      aiSummaryExtraParams = 'aiSummaryExtraParams';
 
   static const String themeMode = 'themeMode',
       defaultTextScale = 'textScale',
