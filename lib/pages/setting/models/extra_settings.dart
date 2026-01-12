@@ -871,7 +871,7 @@ List<SettingsModel> get extraSettings => [
   ),
   NormalModel(
     title: 'AI总结API配置',
-    subtitle: '配置OpenAI风格API用于评论总结',
+    subtitle: '配置OpenAI兼容API（如DeepSeek、OpenAI等）用于评论总结',
     leading: const Icon(Icons.api_outlined),
     onTap: (context, setState) {
       showDialog(
@@ -1417,7 +1417,7 @@ class _AiApiConfigDialogState extends State<_AiApiConfigDialog> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              '配置OpenAI风格API用于评论总结',
+              '配置OpenAI兼容API（如DeepSeek、OpenAI等）用于评论总结',
               style: TextStyle(fontSize: 12, color: Colors.grey),
             ),
             const SizedBox(height: 16),

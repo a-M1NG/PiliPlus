@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:PiliPlus/http/init.dart';
 import 'package:PiliPlus/utils/storage.dart';
@@ -74,6 +75,10 @@ class AiSummaryService {
       baseUrl.isNotEmpty && apiKey.isNotEmpty && apiKey.startsWith('sk-');
 
   /// Approximate token count (1 token ≈ 4 characters for English, ≈ 2 for Chinese)
+  /// 
+  /// This is a rough approximation and may not match actual tokenizer results,
+  /// especially for mixed-language content. Uses 3 characters per token as a
+  /// reasonable middle ground between English and Chinese text.
   static int estimateTokens(String text) {
     // Simple estimation: average between English (4 chars/token) and Chinese (2 chars/token)
     // Using 3 characters per token as a reasonable middle ground
@@ -81,6 +86,8 @@ class AiSummaryService {
   }
 
   /// Parse extra parameters from JSON string
+  /// Note: Critical parameters like 'model' and 'messages' should not be included
+  /// as they will be overridden by the service configuration
   static Map<String, dynamic> parseExtraParams() {
     try {
       final params = extraParams.trim();
@@ -88,31 +95,18 @@ class AiSummaryService {
       
       // Add braces if not present to make it valid JSON
       final jsonStr = params.startsWith('{') ? params : '{$params}';
-      final decoded = jsonStr.replaceAll('\n', '').replaceAll('\r', '');
       
-      // Parse key-value pairs manually for flexibility
-      final Map<String, dynamic> result = {};
-      final regex = RegExp(r'"([^"]+)"\s*:\s*([^,}]+)');
-      final matches = regex.allMatches(decoded);
+      // Use proper JSON decoding
+      final decoded = jsonDecode(jsonStr) as Map<String, dynamic>;
       
-      for (final match in matches) {
-        final key = match.group(1)!;
-        final value = match.group(2)!.trim();
-        
-        // Try to parse as number first
-        if (value == 'true') {
-          result[key] = true;
-        } else if (value == 'false') {
-          result[key] = false;
-        } else if (double.tryParse(value) != null) {
-          result[key] = double.parse(value);
-        } else {
-          result[key] = value.replaceAll('"', '');
-        }
-      }
+      // Remove critical parameters that should not be overridden
+      decoded.remove('model');
+      decoded.remove('messages');
+      decoded.remove('stream');
       
-      return result;
+      return decoded;
     } catch (e) {
+      // If JSON parsing fails, return empty map
       return {};
     }
   }
