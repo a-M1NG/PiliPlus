@@ -88,12 +88,19 @@ class AiSummaryService {
   /// Parse extra parameters from JSON string
   /// Note: Critical parameters like 'model', 'messages', 'stream', and 'max_tokens'
   /// will be filtered out to prevent unexpected behavior
+  /// 
+  /// Accepts JSON with or without surrounding braces:
+  /// - Valid: {"temperature": 1, "top_p": 0.9}
+  /// - Valid: "temperature": 1, "top_p": 0.9
+  /// 
+  /// Returns empty map if parsing fails
   static Map<String, dynamic> parseExtraParams() {
     try {
       final params = extraParams.trim();
       if (params.isEmpty) return {};
       
-      // Add braces if not present to make it valid JSON
+      // Add braces if not present for convenience
+      // This allows users to omit braces in the UI
       final jsonStr = params.startsWith('{') ? params : '{$params}';
       
       // Use proper JSON decoding
@@ -108,6 +115,7 @@ class AiSummaryService {
       return decoded;
     } catch (e) {
       // If JSON parsing fails, return empty map
+      // The test connection will still work, just without extra params
       return {};
     }
   }
@@ -290,10 +298,8 @@ class AiSummaryService {
         ),
       );
       
-      final fullPrompt = '''$prompt
-      数据内容：
-      $csvData
-      ''';
+      // Build the full prompt with data
+      final fullPrompt = '$prompt\n数据内容：\n$csvData';
 
       final requestData = {
         'model': model,
@@ -303,9 +309,12 @@ class AiSummaryService {
         'stream': false,
       };
 
-      // Add extra parameters
+      // Add extra parameters first
       final extra = parseExtraParams();
       requestData.addAll(extra);
+      
+      // Note: We don't set max_tokens here as the truncation is handled
+      // by the _truncateRepliesToTokenLimit method before this call
 
       final response = await dio.post(
         '$baseUrl/chat/completions',
