@@ -134,7 +134,7 @@ class AiSummaryService {
         ),
       );
 
-      final requestData = {
+      final requestData = <String, dynamic>{
         'model': model,
         'messages': [
           {'role': 'user', 'content': 'Hello'},
@@ -301,7 +301,7 @@ class AiSummaryService {
       // Build the full prompt with data
       final fullPrompt = '$prompt\n数据内容：\n$csvData';
 
-      final requestData = {
+      final requestData = <String, dynamic>{
         'model': model,
         'messages': [
           {'role': 'user', 'content': fullPrompt},
