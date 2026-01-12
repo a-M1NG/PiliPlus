@@ -1,6 +1,5 @@
 import 'dart:async';
-import 'dart:convert';
-import 'package:PiliPlus/grpc/bilibili/main/community/reply/v1.pb.dart';
+
 import 'package:PiliPlus/http/init.dart';
 import 'package:PiliPlus/utils/storage.dart';
 import 'package:PiliPlus/utils/storage_key.dart';
@@ -10,6 +9,7 @@ import 'package:fixnum/fixnum.dart';
 class AiSummaryService {
   static String? _baseUrl;
   static String? _apiKey;
+  static String? _prompt;
 
   static String get baseUrl =>
       _baseUrl ??
@@ -19,6 +19,10 @@ class AiSummaryService {
       _apiKey ??
       GStorage.setting.get(SettingBoxKey.aiSummaryApiKey, defaultValue: '');
 
+  static String get prompt =>
+      _prompt ??
+      GStorage.setting.get(SettingBoxKey.aiSummaryPrompt, defaultValue: '');
+
   static set baseUrl(String value) {
     _baseUrl = value;
     GStorage.setting.put(SettingBoxKey.aiSummaryBaseUrl, value);
@@ -27,6 +31,11 @@ class AiSummaryService {
   static set apiKey(String value) {
     _apiKey = value;
     GStorage.setting.put(SettingBoxKey.aiSummaryApiKey, value);
+  }
+
+  static set prompt(String value) {
+    _prompt = value;
+    GStorage.setting.put(SettingBoxKey.aiSummaryPrompt, value);
   }
 
   static bool get isConfigured =>
@@ -39,21 +48,25 @@ class AiSummaryService {
     }
 
     try {
-      final dio = Dio(BaseOptions(
-        connectTimeout: const Duration(seconds: 10),
-        receiveTimeout: const Duration(seconds: 10),
-      ));
+      final dio = Dio(
+        BaseOptions(
+          connectTimeout: const Duration(seconds: 10),
+          receiveTimeout: const Duration(seconds: 10),
+        ),
+      );
 
       final response = await dio.post(
         '$baseUrl/chat/completions',
-        options: Options(headers: {
-          'Authorization': 'Bearer $apiKey',
-          'Content-Type': 'application/json',
-        }),
+        options: Options(
+          headers: {
+            'Authorization': 'Bearer $apiKey',
+            'Content-Type': 'application/json',
+          },
+        ),
         data: {
           'model': 'gpt-3.5-turbo',
           'messages': [
-            {'role': 'user', 'content': 'Hello'}
+            {'role': 'user', 'content': 'Hello'},
           ],
           'max_tokens': 10,
         },
@@ -105,7 +118,10 @@ class AiSummaryService {
           final root = data['root'];
           allData.add({
             'user': '【楼主】${root['member']['uname']}',
-            'content': root['content']['message'].toString().replaceAll('\n', ' ').trim(),
+            'content': root['content']['message']
+                .toString()
+                .replaceAll('\n', ' ')
+                .trim(),
             'likes': root['like'],
           });
           totalCount = data['page']['count'] + 1;
@@ -117,7 +133,10 @@ class AiSummaryService {
 
         final replies = data['replies'] as List;
         for (final r in replies) {
-          final content = r['content']['message'].toString().replaceAll('\n', ' ').trim();
+          final content = r['content']['message']
+              .toString()
+              .replaceAll('\n', ' ')
+              .trim();
           if (content.isEmpty) continue;
 
           allData.add({
@@ -185,38 +204,30 @@ class AiSummaryService {
     try {
       onProgress(0.9); // Start AI processing phase
 
-      final dio = Dio(BaseOptions(
-        connectTimeout: const Duration(seconds: 60),
-        receiveTimeout: const Duration(seconds: 60),
-      ));
-
-      final prompt = '''
-你是一个舆情分析专家。我提供了一份B站评论区的对话数据（CSV格式）。
-
-**重要结构说明**：
-- **第一行数据（标记为【楼主】）**：是引发讨论的核心观点/原评论。
-- **后续数据**：是其他用户对该观点的回复、反驳或延伸。
-
-请基于此完成分析：
-1. **楼主观点提炼**：简述楼主说了什么？
-2. **舆论阵营**：回复中支持楼主、反驳楼主、纯粹吃瓜和其他讨论的比例大概如何？
-3. **反驳逻辑**：如果有人反驳，他们主要抓住了楼主的什么漏洞？(引用高赞反驳)
-4. **总结**：这段对话反映了什么样的群体情绪？
-
-数据内容：
-$csvData
-''';
+      final dio = Dio(
+        BaseOptions(
+          connectTimeout: const Duration(seconds: 60),
+          receiveTimeout: const Duration(seconds: 60),
+        ),
+      );
+      prompt +=
+          '''
+      数据内容：
+      $csvData
+      ''';
 
       final response = await dio.post(
         '$baseUrl/chat/completions',
-        options: Options(headers: {
-          'Authorization': 'Bearer $apiKey',
-          'Content-Type': 'application/json',
-        }),
+        options: Options(
+          headers: {
+            'Authorization': 'Bearer $apiKey',
+            'Content-Type': 'application/json',
+          },
+        ),
         data: {
           'model': 'deepseek-chat',
           'messages': [
-            {'role': 'user', 'content': prompt}
+            {'role': 'user', 'content': prompt},
           ],
           'stream': false,
         },

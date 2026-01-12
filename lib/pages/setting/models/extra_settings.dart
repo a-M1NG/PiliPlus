@@ -1290,6 +1290,7 @@ class _AiApiConfigDialog extends StatefulWidget {
 
 class _AiApiConfigDialogState extends State<_AiApiConfigDialog> {
   late TextEditingController _baseUrlController;
+  late TextEditingController _promptController;
   late TextEditingController _apiKeyController;
   bool _isTesting = false;
 
@@ -1299,7 +1300,7 @@ class _AiApiConfigDialogState extends State<_AiApiConfigDialog> {
     _baseUrlController = TextEditingController(
       text: GStorage.setting.get(
         SettingBoxKey.aiSummaryBaseUrl,
-        defaultValue: 'https://api.deepseek.com',
+        defaultValue: 'https://api.deepseek.com/v1',
       ),
     );
     _apiKeyController = TextEditingController(
@@ -1308,12 +1309,32 @@ class _AiApiConfigDialogState extends State<_AiApiConfigDialog> {
         defaultValue: '',
       ),
     );
+    _promptController = TextEditingController(
+      text: GStorage.setting.get(
+        SettingBoxKey.aiSummaryPrompt,
+        defaultValue: '''
+你是一个舆情分析专家。我提供了一份B站评论区的对话数据（CSV格式）。
+
+**重要结构说明**：
+- **第一行数据（标记为【楼主】）**：是引发讨论的核心观点/原评论。
+- **后续数据**：是其他用户对该观点的回复、反驳或延伸。
+
+请基于此完成分析：
+1. **楼主观点提炼**：简述楼主说了什么？
+2. **舆论阵营**：回复中支持楼主、反驳楼主、纯粹吃瓜和其他讨论的比例大概如何？
+3. **反驳逻辑**：如果有人反驳，他们主要抓住了楼主的什么漏洞？(引用高赞反驳)
+4. **总结**：这段对话反映了什么样的群体情绪？
+
+''',
+      ),
+    );
   }
 
   @override
   void dispose() {
     _baseUrlController.dispose();
     _apiKeyController.dispose();
+    _promptController.dispose();
     super.dispose();
   }
 
@@ -1332,23 +1353,31 @@ class _AiApiConfigDialogState extends State<_AiApiConfigDialog> {
     // Save temporarily for testing
     await GStorage.setting.put(SettingBoxKey.aiSummaryBaseUrl, baseUrl);
     await GStorage.setting.put(SettingBoxKey.aiSummaryApiKey, apiKey);
+    await GStorage.setting.put(
+      SettingBoxKey.aiSummaryPrompt,
+      _promptController.text.trim(),
+    );
 
     try {
-      final dio = Dio(BaseOptions(
-        connectTimeout: const Duration(seconds: 10),
-        receiveTimeout: const Duration(seconds: 10),
-      ));
+      final dio = Dio(
+        BaseOptions(
+          connectTimeout: const Duration(seconds: 10),
+          receiveTimeout: const Duration(seconds: 10),
+        ),
+      );
 
       final response = await dio.post(
         '$baseUrl/chat/completions',
-        options: Options(headers: {
-          'Authorization': 'Bearer $apiKey',
-          'Content-Type': 'application/json',
-        }),
+        options: Options(
+          headers: {
+            'Authorization': 'Bearer $apiKey',
+            'Content-Type': 'application/json',
+          },
+        ),
         data: {
-          'model': 'gpt-3.5-turbo',
+          'model': 'deepseek-chat',
           'messages': [
-            {'role': 'user', 'content': 'Hello'}
+            {'role': 'user', 'content': 'Hello'},
           ],
           'max_tokens': 10,
         },
@@ -1384,7 +1413,7 @@ class _AiApiConfigDialogState extends State<_AiApiConfigDialog> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              '配置OpenAI风格的API用于评论总结',
+              '配置DeepSeek的API用于评论总结',
               style: TextStyle(fontSize: 12, color: Colors.grey),
             ),
             const SizedBox(height: 16),
@@ -1392,7 +1421,7 @@ class _AiApiConfigDialogState extends State<_AiApiConfigDialog> {
               controller: _baseUrlController,
               decoration: const InputDecoration(
                 labelText: 'API Base URL',
-                hintText: 'https://api.deepseek.com',
+                hintText: 'https://api.deepseek.com/v1',
                 border: OutlineInputBorder(),
                 isDense: true,
               ),
@@ -1403,6 +1432,17 @@ class _AiApiConfigDialogState extends State<_AiApiConfigDialog> {
               decoration: const InputDecoration(
                 labelText: 'API Key',
                 hintText: 'sk-...',
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+              obscureText: true,
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _promptController,
+              decoration: const InputDecoration(
+                labelText: 'Prompt',
+                hintText: '',
                 border: OutlineInputBorder(),
                 isDense: true,
               ),
@@ -1441,6 +1481,10 @@ class _AiApiConfigDialogState extends State<_AiApiConfigDialog> {
 
             await GStorage.setting.put(SettingBoxKey.aiSummaryBaseUrl, baseUrl);
             await GStorage.setting.put(SettingBoxKey.aiSummaryApiKey, apiKey);
+            await GStorage.setting.put(
+              SettingBoxKey.aiSummaryPrompt,
+              _promptController.text.trim(),
+            );
 
             widget.onSaved();
             Get.back();
